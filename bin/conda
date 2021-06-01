@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+
+import hashlib
+import io
+import os
+import pathlib
+import platform
+import subprocess
+import sys
+import tarfile
+import urllib.request
+
+_release_url = "https://anaconda.org/conda-forge/conda-standalone/"
+
+
+_binaries = {
+    ("Linux", "x86_64"): {
+        "url": _release_url
+        + "4.9.2/download/linux-64/conda-standalone-4.9.2-ha770c72_2.tar.bz2",
+        "sha256": "0b5bbd49ff8e7e4fa2b0f55cb9dbcd8d5ceea4c3d2aeda4ef200e4f259a9b0e4",
+    },
+    ("Darwin", "x86_64"): {
+        "url": _release_url
+        + "4.9.2/download/osx-64/conda-standalone-4.9.2-h694c41f_2.tar.bz2",
+        "sha256": "e8975394596f688fc26c235b8fcbea482829eb4bb3f6ac6059cf3519bb98c856",
+    },
+}
+
+bin_path = pathlib.Path(__file__).parent / ("." + pathlib.Path(__file__).name + "-bin")
+archive_file = "standalone_conda/conda.exe"
+
+if not bin_path.exists():
+    # conda-standalone is distributed via conda-forge, so we get the conda package rather
+    # than the actual executable. Crack open the .tar.bz2 and pull out the executable
+    # from standalone_conda/conda.exe
+    location = _binaries[(platform.system(), platform.machine())]
+
+    print("fetching: %r" % location["url"])
+
+    # anaconda.org returns a 403 when using urllib.request, not clear why
+    src_bytes = subprocess.check_output(["curl", "-LJ", location["url"]])
+
+    src_hash = hashlib.sha256(src_bytes).hexdigest()
+    if src_hash != location["sha256"]:
+        print("sha256 expected: %r got: %r" % (location["sha256"], src_hash))
+        sys.exit(1)
+
+    archive = tarfile.open(fileobj=io.BytesIO(src_bytes), mode="r:bz2")
+
+    bin_bytes = archive.extractfile(archive_file).read()
+    assert bin_bytes is not None, "Could not locate %r in archive." % archive_file
+
+    bin_path.write_bytes(bin_bytes)
+    bin_path.chmod(0o755)
+
+args = [bin_path] + sys.argv[1:]
+os.execv(bin_path, args)
